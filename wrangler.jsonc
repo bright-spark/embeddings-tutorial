@@ -6,7 +6,7 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "embeddings-tutorial",
 	"main": "src/index.ts",
-	"compatibility_date": "2025-04-27",
+	"compatibility_date": "2024-04-05",
 	"observability": {
 		"enabled": true
 	},
@@ -18,7 +18,10 @@
 	],
 	"ai": {
 		"binding": "AI"
-	}
+	},
+	"rules": [
+		{ "type": "Text", "globs": ["**/*.csv"], "fallthrough": true }
+	]
 
 	/**
 	 * Smart Placement

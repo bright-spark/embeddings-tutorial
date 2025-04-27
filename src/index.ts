@@ -39,31 +39,67 @@ export default {
 				return new Response("No text data found in CSV to insert.", { status: 400 });
 			}
 
-			console.log(`Attempting to embed ${textsToEmbed.length} text snippets from CSV...`);
-			const modelResp: EmbeddingResponse = await env.AI.run(
-				"@cf/baai/bge-base-en-v1.5",
-				{
-					text: textsToEmbed, // Use the parsed data
-				},
-			);
+			console.log(`Total text snippets to process: ${textsToEmbed.length}`);
 
-			// Convert the vector embeddings into a format Vectorize can accept.
-			// Each vector needs an ID, a value (the vector) and optional metadata.
-			// In a real application, your ID would be bound to the ID of the source
-			// document.
-			let vectors: VectorizeVector[] = [];
-			let id = 1;
-			modelResp.data.forEach((vector) => {
-				vectors.push({ id: `${id}`, values: vector });
-				id++;
-			});
+			const batchSize = 200; // Process in batches of 200
+			let totalInserted = 0;
+			let vectorIdCounter = 1; // Ensure unique IDs across batches
 
-			let inserted = await env.VECTORIZE.upsert(vectors);
-			return Response.json(inserted);
+			try {
+				for (let i = 0; i < textsToEmbed.length; i += batchSize) {
+					const batch = textsToEmbed.slice(i, i + batchSize);
+					console.log(`Processing batch ${Math.floor(i / batchSize) + 1}: items ${i + 1} to ${Math.min(i + batchSize, textsToEmbed.length)}`);
+
+					// Get embeddings for the current batch
+					const modelResp: EmbeddingResponse = await env.AI.run(
+						"@cf/baai/bge-base-en-v1.5",
+						{
+							text: batch,
+						}
+					);
+
+					// Prepare vectors for Vectorize
+					let vectors: VectorizeVector[] = [];
+					modelResp.data.forEach((vector) => {
+						// Use original text as metadata? Could be useful but large.
+						// For now, just use ID. Ensure ID is unique across all batches.
+						vectors.push({ id: `${vectorIdCounter}`, values: vector }); 
+						vectorIdCounter++;
+					});
+
+					// Insert the batch into Vectorize
+					if (vectors.length > 0) {
+						// upsert returns void on success, throws on error
+						await env.VECTORIZE.upsert(vectors);
+						console.log(`  Batch of ${vectors.length} vectors upserted successfully.`);
+						totalInserted += vectors.length; // Add batch size on success
+					}
+				}
+				return Response.json({ success: true, totalVectorsInserted: totalInserted });
+
+			} catch (error) {
+				// Type guard for error handling
+				let errorMessage = "An unknown error occurred during batch processing.";
+				if (error instanceof Error) {
+					console.error(`Error during batch processing: ${error.message}`);
+					errorMessage = error.message;
+					// Check if error has more details in cause
+					if (error.cause) {
+						try {
+							console.error(`Error cause: ${JSON.stringify(error.cause)}`);
+						} catch (stringifyError) {
+							console.error("Could not stringify error cause.");
+						}
+					}
+				} else {
+					console.error("An unexpected error type occurred:", error);
+				}
+				return new Response(`Error during batch processing: ${errorMessage}`, { status: 500 });
+			}
 		}
 
-		// Your query: expect this to match vector ID. 1 in this example
-		let userQuery = "orange cloud";
+		// Your query: expect this to match
+		let userQuery = "CAPS";
 		const queryVector: EmbeddingResponse = await env.AI.run(
 			"@cf/baai/bge-base-en-v1.5",
 			{
